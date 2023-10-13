@@ -4,7 +4,7 @@ const isPowerOfTwo = std.math.isPowerOfTwo;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const Buddy2Allocator = struct {
+pub const Buddy2Allocator = struct {
     const Self = @This();
 
     manager: *Buddy2,
@@ -57,7 +57,7 @@ const Buddy2Allocator = struct {
     }
 };
 
-const Buddy2 = struct {
+pub const Buddy2 = struct {
     const Self = @This();
 
     len: usize,
