@@ -11,11 +11,13 @@ const Buddy2Allocator = struct {
     heap: []u8,
 
     pub fn init(heap: []u8) Self {
-        assert(heap.len % 3 == 0);
-        const heap_size = heap.len / 3;
+        var ctx_len = heap.len / 3 * 2;
+        if (!isPowerOfTwo(ctx_len)) {
+            ctx_len = fixLen(ctx_len) >> 1;
+        }
         return Self{
-            .manager = Buddy2.init(heap[0 .. 2 * heap_size]),
-            .heap = heap[2 * heap_size ..],
+            .manager = Buddy2.init(heap[0..ctx_len]),
+            .heap = heap[ctx_len..],
         };
     }
 
@@ -59,7 +61,7 @@ const Buddy2 = struct {
     const Self = @This();
 
     len: usize,
-    _longest: [1]usize,
+    _longest: [1]u8,
 
     pub fn init(ctx: []u8) *Self {
         const len = ctx.len / 2;
@@ -147,39 +149,6 @@ const Buddy2 = struct {
         return node_size;
     }
 
-    pub const fixLen = switch (@sizeOf(usize)) {
-        4 => fixLen32,
-        8 => fixLen64,
-        else => @panic("unsupported arch"),
-    };
-
-    fn fixLen32(len: usize) usize {
-        var n = len - 1;
-        n |= n >> 1;
-        n |= n >> 2;
-        n |= n >> 4;
-        n |= n >> 8;
-        n |= n >> 16;
-        if (n < 0) {
-            return 1;
-        }
-        return n + 1;
-    }
-
-    fn fixLen64(len: usize) usize {
-        var n = len - 1;
-        n |= n >> 1;
-        n |= n >> 2;
-        n |= n >> 4;
-        n |= n >> 8;
-        n |= n >> 16;
-        n |= n >> 32;
-        if (n < 0) {
-            return 1;
-        }
-        return n + 1;
-    }
-
     fn longest(self: *const Self, index: usize) usize {
         const ptr: [*]const u8 = @ptrCast(&self._longest);
         const node_size = ptr[index];
@@ -213,12 +182,45 @@ const Buddy2 = struct {
     }
 };
 
+const fixLen = switch (@sizeOf(usize)) {
+    4 => fixLen32,
+    8 => fixLen64,
+    else => @panic("unsupported arch"),
+};
+
+fn fixLen32(len: usize) usize {
+    var n = len - 1;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    if (n < 0) {
+        return 1;
+    }
+    return n + 1;
+}
+
+fn fixLen64(len: usize) usize {
+    var n = len - 1;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    if (n < 0) {
+        return 1;
+    }
+    return n + 1;
+}
+
 test "Buddy2Allocator" {
     // Copied from std/heap.zig test "FixedBufferAllocator"
-    const heap_size = comptime Buddy2.fixLen(800000 * @sizeOf(u64));
+    const heap_size = comptime fixLen(800000 * @sizeOf(u64));
 
     const S = struct {
-        var heap: [3 * heap_size]u8 = undefined;
+        var heap: [3 * heap_size + 1024]u8 = undefined;
     };
 
     var buddy2 = Buddy2Allocator.init(S.heap[0..]);
