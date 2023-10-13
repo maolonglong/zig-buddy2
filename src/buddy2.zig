@@ -40,10 +40,11 @@ const Buddy2Allocator = struct {
         return null;
     }
 
-    fn resize(_: *anyopaque, buf: []u8, log2_old_align: u8, new_len: usize, ret_addr: usize) bool {
+    fn resize(ctx: *anyopaque, buf: []u8, log2_old_align: u8, new_len: usize, ret_addr: usize) bool {
         _ = log2_old_align;
         _ = ret_addr;
-        return new_len <= buf.len;
+        const self: *Self = @ptrCast(@alignCast(ctx));
+        return new_len <= self.manager.size(@intFromPtr(buf.ptr) - @intFromPtr(self.heap.ptr));
     }
 
     fn free(ctx: *anyopaque, buf: []u8, log2_old_align: u8, ret_addr: usize) void {
@@ -222,6 +223,25 @@ test "Buddy2Allocator" {
 
     var buddy2 = Buddy2Allocator.init(S.heap[0..]);
     var allocator = buddy2.allocator();
+
+    const slice = try allocator.alloc(u8, 3);
+    try testing.expectEqual(@as(usize, 3), slice.len);
+    try testing.expect(allocator.resize(slice, 4));
+    try testing.expect(!allocator.resize(slice, 5));
+    const slice_resized = try allocator.realloc(slice, 4);
+    try testing.expectEqual(@as(usize, 4), slice_resized.len);
+    try testing.expectEqual(slice.ptr, slice_resized.ptr);
+    allocator.free(slice_resized);
+
+    const slice2 = try allocator.alloc(u8, heap_size);
+    const slice3 = allocator.alloc(u8, 1);
+    if (slice3) |_| {
+        unreachable;
+    } else |err| {
+        try testing.expectEqual(error.OutOfMemory, err);
+    }
+    allocator.free(slice2);
+
     try std.heap.testAllocator(allocator);
 }
 
