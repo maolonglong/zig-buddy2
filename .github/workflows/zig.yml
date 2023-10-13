@@ -1,0 +1,41 @@
+name: Zig
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.zig'
+      - 'build.zig.zon'
+      - '.github/workflows/zig.yml'
+  pull_request:
+    paths:
+      - '**.zig'
+      - 'build.zig.zon'
+      - '.github/workflows/zig.yml'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: '0.11.0'
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Run tests
+        run: |
+          zig env
+          zig build test
+      - name: Set up kcov
+        run: sudo apt-get install -y kcov
+      - name: Generate code coverage report
+        run: zig build kcov
+      - name: Upload coverage report to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: kcov-output
+          # fail_ci_if_error: true
+          verbose: true

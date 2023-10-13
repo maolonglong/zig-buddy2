@@ -1,5 +1,8 @@
 # Buddy Memory Allocation
 
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/maolonglong/zig-buddy2/zig.yml?label=ci)](https://github.com/maolonglong/zig-buddy2/actions/workflows/zig.yml)
+[![Codecov](https://img.shields.io/codecov/c/github/maolonglong/zig-buddy2/main?logo=codecov)](https://codecov.io/gh/maolonglong/zig-buddy2)
+
 A simple buddy memory allocation library.
 
 ## Inspired by
