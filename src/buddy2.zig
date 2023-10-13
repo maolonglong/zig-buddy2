@@ -1,8 +1,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const isPowerOfTwo = std.math.isPowerOfTwo;
+const math = std.math;
+const mem = std.mem;
+const isPowerOfTwo = math.isPowerOfTwo;
 const testing = std.testing;
-const Allocator = std.mem.Allocator;
+const Allocator = mem.Allocator;
 
 pub const Buddy2Allocator = struct {
     const Self = @This();
@@ -32,28 +34,56 @@ pub const Buddy2Allocator = struct {
         };
     }
 
+    fn getHeader(ptr: [*]u8) *[*]u8 {
+        return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
+    }
+
     fn alloc(ctx: *anyopaque, len: usize, log2_ptr_align: u8, ret_addr: usize) ?[*]u8 {
-        _ = log2_ptr_align;
         _ = ret_addr;
         const self: *Self = @ptrCast(@alignCast(ctx));
-        if (self.manager.alloc(len)) |offset| {
-            return @ptrFromInt(@intFromPtr(self.heap.ptr) + offset);
-        }
-        return null;
+        return self.alignedAlloc(len, log2_ptr_align);
+    }
+
+    fn alignedAlloc(self: *Self, len: usize, log2_ptr_align: u8) ?[*]u8 {
+        const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
+
+        var unaligned_ptr = @as([*]u8, @ptrCast(self.buddy2Alloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
+        const unaligned_addr = @intFromPtr(unaligned_ptr);
+        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
+        var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
+        getHeader(aligned_ptr).* = unaligned_ptr;
+
+        return aligned_ptr;
+    }
+
+    fn buddy2Alloc(self: *Self, len: usize) ?[*]u8 {
+        const offset = self.manager.alloc(len) orelse return null;
+        return @ptrFromInt(@intFromPtr(self.heap.ptr) + offset);
     }
 
     fn resize(ctx: *anyopaque, buf: []u8, log2_old_align: u8, new_len: usize, ret_addr: usize) bool {
         _ = log2_old_align;
         _ = ret_addr;
         const self: *Self = @ptrCast(@alignCast(ctx));
-        return new_len <= self.manager.size(@intFromPtr(buf.ptr) - @intFromPtr(self.heap.ptr));
+        return new_len <= self.alignedAllocSize(buf.ptr);
+    }
+
+    fn alignedAllocSize(self: *Self, ptr: [*]u8) usize {
+        const unaligned_addr = @intFromPtr(getHeader(ptr).*);
+        const delta = @intFromPtr(ptr) - unaligned_addr;
+        return self.manager.size(unaligned_addr - @intFromPtr(self.heap.ptr)) - delta;
     }
 
     fn free(ctx: *anyopaque, buf: []u8, log2_old_align: u8, ret_addr: usize) void {
         _ = log2_old_align;
         _ = ret_addr;
         const self: *Self = @ptrCast(@alignCast(ctx));
-        self.manager.free(@intFromPtr(buf.ptr) - @intFromPtr(self.heap.ptr));
+        self.alignedFree(buf.ptr);
+    }
+
+    fn alignedFree(self: *Self, ptr: [*]u8) void {
+        const unaligned_ptr = getHeader(ptr).*;
+        self.manager.free(@intFromPtr(unaligned_ptr) - @intFromPtr(self.heap.ptr));
     }
 };
 
@@ -156,7 +186,7 @@ pub const Buddy2 = struct {
         //     return 0;
         // }
         // return @as(usize, 1) << @truncate(node_size - 1);
-        return (@as(usize, 1) << @truncate(node_size)) >> 1;
+        return (@as(usize, 1) << @as(math.Log2Int(usize), @intCast(node_size))) >> 1;
     }
 
     fn setLongest(self: *Self, index: usize, node_size: usize) void {
@@ -165,8 +195,8 @@ pub const Buddy2 = struct {
         //     ptr[index] = 0;
         //     return;
         // }
-        // ptr[index] = std.math.log2_int(usize, node_size) + 1;
-        ptr[index] = std.math.log2_int(usize, (node_size << 1) | 1);
+        // ptr[index] = math.log2_int(usize, node_size) + 1;
+        ptr[index] = math.log2_int(usize, (node_size << 1) | 1);
     }
 
     fn left(index: usize) usize {
@@ -226,25 +256,10 @@ test "Buddy2Allocator" {
     var buddy2 = Buddy2Allocator.init(S.heap[0..]);
     var allocator = buddy2.allocator();
 
-    const slice = try allocator.alloc(u8, 3);
-    try testing.expectEqual(@as(usize, 3), slice.len);
-    try testing.expect(allocator.resize(slice, 4));
-    try testing.expect(!allocator.resize(slice, 5));
-    const slice_resized = try allocator.realloc(slice, 4);
-    try testing.expectEqual(@as(usize, 4), slice_resized.len);
-    try testing.expectEqual(slice.ptr, slice_resized.ptr);
-    allocator.free(slice_resized);
-
-    const slice2 = try allocator.alloc(u8, heap_size);
-    const slice3 = allocator.alloc(u8, 1);
-    if (slice3) |_| {
-        unreachable;
-    } else |err| {
-        try testing.expectEqual(error.OutOfMemory, err);
-    }
-    allocator.free(slice2);
-
     try std.heap.testAllocator(allocator);
+    try std.heap.testAllocatorAligned(buddy2.allocator());
+    try std.heap.testAllocatorLargeAlignment(buddy2.allocator());
+    try std.heap.testAllocatorAlignedShrink(buddy2.allocator());
 }
 
 test "Buddy2" {
