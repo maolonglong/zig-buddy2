@@ -35,7 +35,7 @@ const Buddy2Allocator = struct {
         _ = ret_addr;
         const self: *Self = @ptrCast(@alignCast(ctx));
         if (self.manager.alloc(len)) |offset| {
-            return self.heap[offset .. offset + len].ptr;
+            return @ptrFromInt(@intFromPtr(self.heap.ptr) + offset);
         }
         return null;
     }
