@@ -221,7 +221,8 @@ test "Buddy2Allocator" {
     };
 
     var buddy2 = Buddy2Allocator.init(S.heap[0..]);
-    try std.heap.testAllocator(buddy2.allocator());
+    var allocator = buddy2.allocator();
+    try std.heap.testAllocator(allocator);
 }
 
 test "Buddy2" {
@@ -268,8 +269,18 @@ test "Buddy2" {
     try testing.expectEqual(@as(usize, 12), buddy2.alloc(4).?);
     try testing.expectEqual(@as(usize, 4), buddy2.size(12));
     buddy2.free(12);
+    try testing.expectEqual(@as(usize, 12), buddy2.alloc(3).?);
+    try testing.expectEqual(@as(usize, 4), buddy2.size(12));
+    buddy2.free(12);
     try testing.expectEqual(@as(usize, 12), buddy2.alloc(2).?);
     try testing.expectEqual(@as(usize, 2), buddy2.size(12));
     try testing.expectEqual(@as(usize, 14), buddy2.alloc(2).?);
     try testing.expectEqual(@as(usize, 2), buddy2.size(14));
+    buddy2.free(12);
+    buddy2.free(14);
+    buddy2.free(0);
+    buddy2.free(8);
+    try testing.expectEqual(@as(usize, 0), buddy2.alloc(16).?);
+    try testing.expectEqual(@as(usize, 16), buddy2.size(0));
+    try testing.expect(buddy2.alloc(1) == null);
 }
