@@ -166,7 +166,6 @@ pub const Buddy2 = struct {
     }
 
     pub fn size(self: *const Self, offset: usize) usize {
-        assert(offset >= 0 and offset < self.len);
         return self.indexToSize(self.backward(offset));
     }
 
