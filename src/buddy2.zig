@@ -117,7 +117,9 @@ pub const Buddy2 = struct {
 
         var node_size = self.len;
         while (node_size != new_len) : (node_size /= 2) {
-            if (self.longest(left(index)) >= new_len) {
+            const left_longest = self.longest(left(index));
+            const right_longest = self.longest(right(index));
+            if (left_longest >= new_len and (right_longest < new_len or right_longest >= left_longest)) {
                 index = left(index);
             } else {
                 index = right(index);
@@ -330,4 +332,12 @@ test "Buddy2" {
     try testing.expectEqual(@as(usize, 0), buddy2.alloc(16).?);
     try testing.expectEqual(@as(usize, 16), buddy2.size(0));
     try testing.expect(buddy2.alloc(1) == null);
+    buddy2.free(0);
+
+    // Allocate small blocks first.
+    try testing.expectEqual(@as(usize, 0), buddy2.alloc(8).?);
+    try testing.expectEqual(@as(usize, 8), buddy2.alloc(4).?);
+    buddy2.free(0);
+    try testing.expectEqual(@as(usize, 12), buddy2.alloc(4).?);
+    try testing.expectEqual(@as(usize, 0), buddy2.alloc(8).?);
 }
