@@ -34,10 +34,6 @@ pub const Buddy2Allocator = struct {
         };
     }
 
-    fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
-    }
-
     fn alloc(ctx: *anyopaque, len: usize, log2_ptr_align: u8, ret_addr: usize) ?[*]u8 {
         _ = ret_addr;
         const self: *Self = @ptrCast(@alignCast(ctx));
@@ -47,16 +43,14 @@ pub const Buddy2Allocator = struct {
     fn alignedAlloc(self: *Self, len: usize, log2_ptr_align: u8) ?[*]u8 {
         const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
 
-        var unaligned_ptr = @as([*]u8, @ptrCast(self.buddy2Alloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
+        var unaligned_ptr = @as([*]u8, @ptrCast(self.unalignedAlloc(len + alignment - 1) orelse return null));
         const unaligned_addr = @intFromPtr(unaligned_ptr);
-        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
-        var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
-        getHeader(aligned_ptr).* = unaligned_ptr;
+        const aligned_addr = mem.alignForward(usize, unaligned_addr, alignment);
 
-        return aligned_ptr;
+        return unaligned_ptr + (aligned_addr - unaligned_addr);
     }
 
-    fn buddy2Alloc(self: *Self, len: usize) ?[*]u8 {
+    fn unalignedAlloc(self: *Self, len: usize) ?[*]u8 {
         const offset = self.manager.alloc(len) orelse return null;
         return @ptrFromInt(@intFromPtr(self.heap.ptr) + offset);
     }
@@ -69,9 +63,13 @@ pub const Buddy2Allocator = struct {
     }
 
     fn alignedAllocSize(self: *Self, ptr: [*]u8) usize {
-        const unaligned_addr = @intFromPtr(getHeader(ptr).*);
-        const delta = @intFromPtr(ptr) - unaligned_addr;
-        return self.manager.size(unaligned_addr - @intFromPtr(self.heap.ptr)) - delta;
+        const aligned_offset = @intFromPtr(ptr) - @intFromPtr(self.heap.ptr);
+        const index = self.manager.backward(aligned_offset);
+
+        const unaligned_offset = self.manager.indexToOffset(index);
+        const unaligned_size = self.manager.indexToSize(index);
+
+        return unaligned_size - (aligned_offset - unaligned_offset);
     }
 
     fn free(ctx: *anyopaque, buf: []u8, log2_old_align: u8, ret_addr: usize) void {
@@ -82,8 +80,7 @@ pub const Buddy2Allocator = struct {
     }
 
     fn alignedFree(self: *Self, ptr: [*]u8) void {
-        const unaligned_ptr = getHeader(ptr).*;
-        self.manager.free(@intFromPtr(unaligned_ptr) - @intFromPtr(self.heap.ptr));
+        self.manager.free(@intFromPtr(ptr) - @intFromPtr(self.heap.ptr));
     }
 };
 
@@ -128,6 +125,7 @@ pub const Buddy2 = struct {
         }
 
         self.setLongest(index, 0);
+        // const offset = self.indexToOffset(index);
         const offset = (index + 1) * node_size - self.len;
 
         while (index != 0) {
@@ -169,14 +167,27 @@ pub const Buddy2 = struct {
 
     pub fn size(self: *const Self, offset: usize) usize {
         assert(offset >= 0 and offset < self.len);
+        return self.indexToSize(self.backward(offset));
+    }
 
-        var node_size: usize = 1;
+    fn backward(self: *const Self, offset: usize) usize {
+        assert(offset >= 0 and offset < self.len);
+
         var index = offset + self.len - 1;
-        while (self.longest(index) != 0) : (index = parent(index)) {
-            node_size *= 2;
+        while (self.longest(index) != 0) {
+            index = parent(index);
         }
 
-        return node_size;
+        return index;
+    }
+
+    fn indexToSize(self: *const Self, index: usize) usize {
+        return self.len >> math.log2_int(usize, index + 1);
+    }
+
+    fn indexToOffset(self: *const Self, index: usize) usize {
+        // return (index + 1) * node_size - self.len;
+        return (index + 1) * self.indexToSize(index) - self.len;
     }
 
     fn longest(self: *const Self, index: usize) usize {
@@ -257,9 +268,9 @@ test "Buddy2Allocator" {
     var allocator = buddy2.allocator();
 
     try std.heap.testAllocator(allocator);
-    try std.heap.testAllocatorAligned(buddy2.allocator());
-    try std.heap.testAllocatorLargeAlignment(buddy2.allocator());
-    try std.heap.testAllocatorAlignedShrink(buddy2.allocator());
+    try std.heap.testAllocatorAligned(allocator);
+    try std.heap.testAllocatorLargeAlignment(allocator);
+    try std.heap.testAllocatorAlignedShrink(allocator);
 }
 
 test "Buddy2" {
