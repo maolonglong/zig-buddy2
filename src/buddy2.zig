@@ -8,6 +8,8 @@ const isPowerOfTwo = math.isPowerOfTwo;
 const testing = std.testing;
 const Allocator = mem.Allocator;
 
+pub const Log2Usize = math.Log2Int(usize);
+
 pub const Config = struct {
     /// Enables emitting info messages with the size and address of every allocation.
     verbose_log: bool = false,
@@ -20,26 +22,26 @@ pub fn Buddy2Allocator(comptime config: Config) type {
         const Self = @This();
 
         manager: *Buddy2,
-        heap: []u8,
+        bytes: []u8,
 
-        pub fn init(heap: []u8) Self {
-            var ctx_len = heap.len / 3 * 2;
+        pub fn init(bytes: []u8) Self {
+            var ctx_len = bytes.len / 3 * 2;
             if (!isPowerOfTwo(ctx_len)) {
                 ctx_len = fixLen(ctx_len) >> 1;
             }
             return Self{
-                .manager = Buddy2.init(heap[0..ctx_len]),
-                .heap = heap[ctx_len..],
+                .manager = Buddy2.init(bytes[0..ctx_len]),
+                .bytes = bytes[ctx_len..],
             };
         }
 
         pub fn detectLeaks(self: *const Self) bool {
-            const slice: []u8 = @as([*]u8, @ptrCast(&self.manager._longest))[0 .. self.manager.len * 2 - 1];
+            const slice: []u8 = @as([*]u8, @ptrCast(&self.manager._longest))[0 .. self.manager.getLen() * 2 - 1];
             var leaks = false;
             for (slice, 0..) |longest, i| {
                 if (longest == 0) {
                     if (!builtin.is_test) {
-                        log.err("memory address 0x{x} leaked", .{@intFromPtr(self.heap.ptr) + self.manager.indexToOffset(i)});
+                        log.err("memory address 0x{x} leaked", .{@intFromPtr(self.bytes.ptr) + self.manager.indexToOffset(i)});
                     }
                     leaks = true;
                 }
@@ -86,7 +88,7 @@ pub fn Buddy2Allocator(comptime config: Config) type {
 
         fn unalignedAlloc(self: *Self, len: usize) ?[*]u8 {
             const offset = self.manager.alloc(len) orelse return null;
-            return @ptrFromInt(@intFromPtr(self.heap.ptr) + offset);
+            return @ptrFromInt(@intFromPtr(self.bytes.ptr) + offset);
         }
 
         fn resize(ctx: *anyopaque, buf: []u8, log2_old_align: u8, new_len: usize, ret_addr: usize) bool {
@@ -103,7 +105,7 @@ pub fn Buddy2Allocator(comptime config: Config) type {
         }
 
         fn alignedAllocSize(self: *Self, ptr: [*]u8) usize {
-            const aligned_offset = @intFromPtr(ptr) - @intFromPtr(self.heap.ptr);
+            const aligned_offset = @intFromPtr(ptr) - @intFromPtr(self.bytes.ptr);
             const index = self.manager.backward(aligned_offset);
 
             const unaligned_offset = self.manager.indexToOffset(index);
@@ -123,7 +125,7 @@ pub fn Buddy2Allocator(comptime config: Config) type {
         }
 
         fn alignedFree(self: *Self, ptr: [*]u8) void {
-            self.manager.free(@intFromPtr(ptr) - @intFromPtr(self.heap.ptr));
+            self.manager.free(@intFromPtr(ptr) - @intFromPtr(self.bytes.ptr));
         }
     };
 }
@@ -131,7 +133,7 @@ pub fn Buddy2Allocator(comptime config: Config) type {
 pub const Buddy2 = struct {
     const Self = @This();
 
-    len: usize,
+    _len: u8,
     _longest: [1]u8,
 
     pub fn init(ctx: []u8) *Self {
@@ -139,7 +141,7 @@ pub const Buddy2 = struct {
         assert(isPowerOfTwo(len));
 
         const self: *Self = @ptrCast(@alignCast(ctx));
-        self.len = len;
+        self.setLen(len);
         var node_size = len * 2;
 
         for (0..2 * len - 1) |i| {
@@ -155,14 +157,14 @@ pub const Buddy2 = struct {
         const new_len = fixLen(len);
         var index: usize = 0;
 
-        if (self.longest(index) < new_len) {
+        if (self.getLongest(index) < new_len) {
             return null;
         }
 
-        var node_size = self.len;
+        var node_size = self.getLen();
         while (node_size != new_len) : (node_size /= 2) {
-            const left_longest = self.longest(left(index));
-            const right_longest = self.longest(right(index));
+            const left_longest = self.getLongest(left(index));
+            const right_longest = self.getLongest(right(index));
             if (left_longest >= new_len and (right_longest < new_len or right_longest >= left_longest)) {
                 index = left(index);
             } else {
@@ -172,23 +174,23 @@ pub const Buddy2 = struct {
 
         self.setLongest(index, 0);
         // const offset = self.indexToOffset(index);
-        const offset = (index + 1) * node_size - self.len;
+        const offset = (index + 1) * node_size - self.getLen();
 
         while (index != 0) {
             index = parent(index);
-            self.setLongest(index, @max(self.longest(left(index)), self.longest(right(index))));
+            self.setLongest(index, @max(self.getLongest(left(index)), self.getLongest(right(index))));
         }
 
         return offset;
     }
 
     pub fn free(self: *Self, offset: usize) void {
-        assert(offset >= 0 and offset < self.len);
+        assert(offset >= 0 and offset < self.getLen());
 
         var node_size: usize = 1;
-        var index = offset + self.len - 1;
+        var index = offset + self.getLen() - 1;
 
-        while (self.longest(index) != 0) : (index = parent(index)) {
+        while (self.getLongest(index) != 0) : (index = parent(index)) {
             node_size *= 2;
             if (index == 0) {
                 return;
@@ -200,8 +202,8 @@ pub const Buddy2 = struct {
             index = parent(index);
             node_size *= 2;
 
-            const left_longest = self.longest(left(index));
-            const right_longest = self.longest(right(index));
+            const left_longest = self.getLongest(left(index));
+            const right_longest = self.getLongest(right(index));
 
             if (left_longest + right_longest == node_size) {
                 self.setLongest(index, node_size);
@@ -216,36 +218,44 @@ pub const Buddy2 = struct {
     }
 
     fn backward(self: *const Self, offset: usize) usize {
-        assert(offset >= 0 and offset < self.len);
+        assert(offset >= 0 and offset < self.getLen());
 
-        var index = offset + self.len - 1;
-        while (self.longest(index) != 0) {
+        var index = offset + self.getLen() - 1;
+        while (self.getLongest(index) != 0) {
             index = parent(index);
         }
 
         return index;
     }
 
-    fn indexToSize(self: *const Self, index: usize) usize {
-        return self.len >> math.log2_int(usize, index + 1);
+    inline fn getLen(self: *const Self) usize {
+        return @as(usize, 1) << @as(Log2Usize, @intCast(self._len));
     }
 
-    fn indexToOffset(self: *const Self, index: usize) usize {
+    inline fn setLen(self: *Self, len: usize) void {
+        self._len = math.log2_int(usize, len);
+    }
+
+    inline fn indexToSize(self: *const Self, index: usize) usize {
+        return self.getLen() >> math.log2_int(usize, index + 1);
+    }
+
+    inline fn indexToOffset(self: *const Self, index: usize) usize {
         // return (index + 1) * node_size - self.len;
-        return (index + 1) * self.indexToSize(index) - self.len;
+        return (index + 1) * self.indexToSize(index) - self.getLen();
     }
 
-    fn longest(self: *const Self, index: usize) usize {
+    inline fn getLongest(self: *const Self, index: usize) usize {
         const ptr: [*]const u8 = @ptrCast(&self._longest);
         const node_size = ptr[index];
         // if (node_size == 0) {
         //     return 0;
         // }
         // return @as(usize, 1) << @truncate(node_size - 1);
-        return (@as(usize, 1) << @as(math.Log2Int(usize), @intCast(node_size))) >> 1;
+        return (@as(usize, 1) << @as(Log2Usize, @intCast(node_size))) >> 1;
     }
 
-    fn setLongest(self: *Self, index: usize, node_size: usize) void {
+    inline fn setLongest(self: *Self, index: usize, node_size: usize) void {
         const ptr: [*]u8 = @ptrCast(&self._longest);
         // if (node_size == 0) {
         //     ptr[index] = 0;
@@ -255,15 +265,15 @@ pub const Buddy2 = struct {
         ptr[index] = math.log2_int(usize, (node_size << 1) | 1);
     }
 
-    fn left(index: usize) usize {
+    inline fn left(index: usize) usize {
         return index * 2 + 1;
     }
 
-    fn right(index: usize) usize {
+    inline fn right(index: usize) usize {
         return index * 2 + 2;
     }
 
-    fn parent(index: usize) usize {
+    inline fn parent(index: usize) usize {
         return (index + 1) / 2 - 1;
     }
 };
