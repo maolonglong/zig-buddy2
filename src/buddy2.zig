@@ -2,13 +2,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const log = std.log.scoped(.buddy2);
 const assert = std.debug.assert;
+const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const isPowerOfTwo = math.isPowerOfTwo;
-const testing = std.testing;
 const Allocator = mem.Allocator;
 
-pub const Log2Usize = math.Log2Int(usize);
+pub const Log2Size = math.Log2Int(usize);
 
 pub const Config = struct {
     /// Enables emitting info messages with the size and address of every allocation.
@@ -229,7 +229,7 @@ pub const Buddy2 = struct {
     }
 
     inline fn getLen(self: *const Self) usize {
-        return @as(usize, 1) << @as(Log2Usize, @intCast(self._len));
+        return @as(usize, 1) << @as(Log2Size, @intCast(self._len));
     }
 
     inline fn setLen(self: *Self, len: usize) void {
@@ -252,7 +252,7 @@ pub const Buddy2 = struct {
         //     return 0;
         // }
         // return @as(usize, 1) << @truncate(node_size - 1);
-        return (@as(usize, 1) << @as(Log2Usize, @intCast(node_size))) >> 1;
+        return (@as(usize, 1) << @as(Log2Size, @intCast(node_size))) >> 1;
     }
 
     inline fn setLongest(self: *Self, index: usize, node_size: usize) void {
