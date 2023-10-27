@@ -24,7 +24,7 @@ jobs:
         with:
           version: '0.11.0'
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Run tests
         run: |
           zig env
