@@ -34,7 +34,7 @@ jobs:
       - name: Generate code coverage report
         run: zig build kcov
       - name: Upload coverage report to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           directory: kcov-output
           # fail_ci_if_error: true
